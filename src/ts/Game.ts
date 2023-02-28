@@ -19,8 +19,8 @@ import { isDownloaded, resolveDownloadTarget } from './core/Download';
 declare const Neutralino;
 
 class Stream extends AbstractInstaller {
-    public constructor(uri: string, predownloaded: boolean = false) {
-        super(uri, constants.paths.gameDir, predownloaded);
+    public constructor(uri: string, skipUnpack: boolean = false) {
+        super(uri, constants.paths.gameDir, skipUnpack);
     }
 }
 
@@ -159,7 +159,7 @@ export default class Game {
      * @returns null if the version can't be found
      * @returns Error if company's servers are unreachable or they responded with an error
      */
-    public static update(version: string | null = null): Promise<Stream | null>
+    public static async update(version: string | null = null): Promise<Stream | null>
     {
         Debug.log({
             function: 'Game.update',
@@ -167,24 +167,11 @@ export default class Game {
                 `Updating the game from the ${version} version` :
                 'Installing the game'
         });
-
-        return new Promise((resolve, reject) => {
-            this.isUpdatePredownloaded().then(async (predownloaded) => {
-                if (predownloaded)
-                {
-                    Debug.log({
-                        function: 'Game.update',
-                        message: 'Update is already pre-downloaded. Unpacking started'
-                    });
-
-                    resolve(new Stream(`${await constants.paths.launcherDir}/game-predownloaded.zip`, true));
-                }
-
-                else (version === null ? this.latest : this.getDiff(version))
-                    .then((data: Latest | Diff | null) => resolve(data === null ? null : new Stream(data.path)))
-                    .catch((error) => reject(error));
-            });
-        });
+        const data = await (version === null ? this.latest : this.getDiff(version));
+        if (data == null) {
+            return null;
+        }
+        return new Stream(data.path);
     }
 
     /**
@@ -195,29 +182,16 @@ export default class Game {
      * @returns null if the game pre-downloading is not available. Otherwise - downloading stream
      * @returns Error if company's servers are unreachable or they responded with an error
      */
-    public static predownloadUpdate(version: string | null = null): Promise<DownloadingStream | null | unknown>
-    {
-        return new Promise((resolve, reject) => {
-            const debugThread = new DebugThread('Game.predownloadUpdate', 'Predownloading game data...');
+    public static async predownloadUpdate(version: string | null = null): Promise<Stream | null> {
+        const debugThread = new DebugThread('Game.predownloadUpdate', 'Predownloading game data...');
 
-            this.getLatestData()
-                .then(async (data) => {
-                    if (data.pre_download_game)
-                    {
-                        const target = resolveDownloadTarget(data.pre_download_game, version);
-
-                        debugThread.log(`Downloading update from the path: ${target.path}`);
-
-                        const dir = await constants.paths.launcherDir;
-                        const stream = await Downloader.download(target.path, `${dir}/game-predownloaded.zip`);
-
-                        resolve(stream);
-                    }
-
-                    else resolve(null);
-                })
-                .catch((error) => reject(error));
-        });
+        const data = await this.getLatestData();
+        if (!data.pre_download_game) {
+            return null;
+        }
+        const target = resolveDownloadTarget(data.pre_download_game, version);
+        debugThread.log(`Downloading update from the path: ${target.path}`);
+        return new Stream(target.path, true /* skipUnpack */);
     }
 
     /**
@@ -239,7 +213,7 @@ export default class Game {
 
         debugThread.log(`Predownload target for version ${version}: ${JSON.stringify(target)}`);
 
-        return await isDownloaded(target, `${await constants.paths.launcherDir}/game-predownloaded.zip`);
+        return await isDownloaded(target);
     }
 
     /**

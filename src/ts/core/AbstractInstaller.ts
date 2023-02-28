@@ -45,10 +45,9 @@ export default abstract class Installer
      * @param uri URI to the archive we need to download
      * @param unpackDir path to unpack this archive to
      * 
-     * @param alreadyDownloaded specifies whether the archive was already downloaded
-     * If true, then URI will be used as a path to the archive. Otherwise stream will download it 
+     * @param skipUnpack specifies whether to skip unpacking the archive after it's downloaded.
      */
-    public constructor(uri: string, unpackDir: string|Promise<string>, alreadyDownloaded: boolean = false)
+    public constructor(uri: string, unpackDir: string|Promise<string>, skipUnpack: boolean = false)
     {
         const shouldResolve = typeof unpackDir !== 'string';
 
@@ -56,13 +55,11 @@ export default abstract class Installer
             message: {
                 'uri': uri,
                 'unpack dir': shouldResolve ? '<promise>' : unpackDir,
-                'already downloaded': alreadyDownloaded ? 'true' : 'false'
+                'skip unpack': skipUnpack ? 'true' : 'false'
             }
         });
 
-        constants.paths.tempDir.then((tempDir) => {
-            const archivePath = alreadyDownloaded ? uri : `${tempDir}/${Downloader.fileFromUri(uri)}`;
-
+        Installer.getArchivePath(uri).then(async (archivePath) => {
             // And then unpack it
             const unpackArchive = () => {
                 Promise.resolve(unpackDir)
@@ -100,44 +97,41 @@ export default abstract class Installer
             };
 
             // Download archive
-            if (!alreadyDownloaded)
-            {
-                Downloader.download(uri, archivePath).then((stream) => {
-                    this.downloadStream = stream;
+            Downloader.download(uri, archivePath).then((stream) => {
+                this.downloadStream = stream;
 
-                    stream.progressInterval = this.downloadProgressInterval;
-                    stream.pauseInterval = this.downloadPauseInterval;
+                stream.progressInterval = this.downloadProgressInterval;
+                stream.pauseInterval = this.downloadPauseInterval;
 
-                    stream.start(() => {
-                        this.downloadStarted = true;
+                stream.start(() => {
+                    this.downloadStarted = true;
 
-                        if (this.onDownloadStart)
-                            this.onDownloadStart();
-                    });
-
-                    stream.progress((current, total, difference) => {
-                        if (this.onDownloadProgress)
-                            this.onDownloadProgress(current, total, difference);
-                    });
-
-                    stream.finish(() => {
-                        this.downloadFinished = true;
-
-                        if (this.onDownloadFinish)
-                            this.onDownloadFinish();
-
-                        unpackArchive();
-                    });
+                    if (this.onDownloadStart)
+                        this.onDownloadStart();
                 });
-            }
 
-            else unpackArchive();
-        });
+                stream.progress((current, total, difference) => {
+                    if (this.onDownloadProgress)
+                        this.onDownloadProgress(current, total, difference);
+                });
+
+                stream.finish(() => {
+                    this.downloadFinished = true;
+
+                    if (this.onDownloadFinish)
+                        this.onDownloadFinish();
+
+                    if (!skipUnpack) {
+                        unpackArchive();
+                    }
+                });
+            });
+      });
     }
 
     /**
      * Specify event that will be called after download has begun
-     * 
+     *
      * @param callback
      */
     public downloadStart(callback: () => void)
@@ -221,5 +215,10 @@ export default abstract class Installer
     public resumeDownload()
     {
         this.downloadStream?.resume();
+    }
+
+    static async getArchivePath(uri: string): Promise<string> {
+        const tempDir = await constants.paths.tempDir;
+        return `${tempDir}/${Downloader.fileFromUri(uri)}`;
     }
 };

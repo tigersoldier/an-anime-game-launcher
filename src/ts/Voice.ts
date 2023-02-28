@@ -15,9 +15,9 @@ declare const Neutralino;
 
 class Stream extends AbstractInstaller
 {
-    public constructor(uri: string, predownloaded: boolean = false)
+    public constructor(uri: string, skipUnpack: boolean = false)
     {
-        super(uri, constants.paths.gameDir, predownloaded);
+        super(uri, constants.paths.gameDir, skipUnpack);
     }
 }
 
@@ -200,24 +200,8 @@ export default class Voice
         });
 
         const latestData = await Game.getLatestData();
-        const predownloaded = await this.isUpdatePredownloaded(lang, latestData.pre_download_game ?? latestData.game, version);
-
-        if (predownloaded)
-        {
-            Debug.log({
-                function: 'Voice.update',
-                message: 'Voice package update is already pre-downloaded. Unpacking started'
-            });
-
-            return new Stream(`${await constants.paths.launcherDir}/voice-${lang}-predownloaded.zip`, true);
-        }
-
-        else
-        {
-            const voicePack = resolveVoicePack(lang, latestData.game, version);
-
-            return voicePack !== null ? new Stream(voicePack.path) : null;
-        }
+        const voicePack = resolveVoicePack(lang, latestData.game, version);
+        return voicePack !== null ? new Stream(voicePack.path) : null;
     }
 
     /**
@@ -226,7 +210,6 @@ export default class Voice
     public static delete(lang: VoiceLang): Promise<void>
     {
         const debugThread = new DebugThread('Voice.delete', `Deleting ${this.langs[lang]} (${lang}) voice package`);
-        
         return new Promise(async (resolve) => {
             const voiceDir = await constants.paths.voiceDir;
 
@@ -264,36 +247,23 @@ export default class Voice
      * @returns null if the game pre-downloading is not available or the language wasn't found. Otherwise - downloading stream
      * @returns Error if company's servers are unreachable or they responded with an error
      */
-    public static predownloadUpdate(lang: string, version: string|null = null): Promise<DownloadingStream|null>
+    public static async predownloadUpdate(lang: VoiceLang, version: string|null = null): Promise<Stream|null>
     {
-        const debugThread = new DebugThread('Voice.predownloadUpdate', `Predownloading ${lang} game voice data...`)
+        const debugThread = new DebugThread('Voice.predownloadUpdate', `Predownloading ${lang} game voice data for version ${version}...`)
+        const data = await Game.getLatestData();
+        if (!data.pre_download_game) {
+            debugThread.log(`Missing pre-download data`);
+            return null;
+        }
+        const voicePack = resolveVoicePack(lang, data.pre_download_game, version);
+        debugThread.log(`Got voicePack data: ${JSON.stringify(voicePack)}`);
 
-        return new Promise((resolve) => {
-            Game.getLatestData()
-                .then((data) => {
-                    if (data.pre_download_game)
-                    {
-                        const voicePack = resolveDownloadTarget(data.pre_download_game, version)
-                            .voice_packs
-                            .filter((voice) => voice.language === lang);
-
-                        if (voicePack.length === 1)
-                        {
-                            debugThread.log(`Downloading update from the path: ${voicePack[0].path}`);
-
-                            constants.paths.launcherDir.then((dir) => {
-                                Downloader.download(voicePack[0].path, `${dir}/voice-${lang}-predownloaded.zip`)
-                                    .then((stream) => resolve(stream));
-                            });
-                        }
-
-                        else resolve(null);
-                    }
-
-                    else resolve(null);
-                })
-                .catch((error) => resolve(error));
-        });
+        if (voicePack === null) {
+            debugThread.log(`Unable to resolve voice pack`);
+            return null;
+        }
+        debugThread.log(`Downloading update from the path: ${voicePack.path}`);
+        return new Stream(voicePack.path, true /* skipUnpack */);
     }
 
     /**
@@ -314,9 +284,7 @@ export default class Voice
                 return false;
             }
 
-            const filePath = `${await constants.paths.launcherDir}/voice-${lang}-predownloaded.zip`;
-
-            return await isDownloaded(voicePack, filePath);
+            return await isDownloaded(voicePack);
         }
 
         else

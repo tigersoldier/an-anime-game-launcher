@@ -1,48 +1,43 @@
+import { Debug } from '@empathize/framework';
 import type Launcher from '../../Launcher';
 import type { VoiceLang } from '../../types/Voice';
-
-import { promisify } from '../../../empathize';
-
 import Voice from '../../Voice';
 
-export default (launcher: Launcher): Promise<void> => {
-    return new Promise(async (resolve) => {
-        let packagesVersions = {};
+export default async (launcher: Launcher): Promise<void> => {
+    let packagesVersions = {};
 
-        for (const installedVoice of await Voice.installed)
-            packagesVersions[installedVoice.lang] = installedVoice.version;
+    for (const installedVoice of await Voice.installed) {
+        packagesVersions[installedVoice.lang] = installedVoice.version;
+    }
 
-        Voice.selected.then(async (selected: VoiceLang[]) => {
-            const updateVoices = promisify({
-                callbacks: selected.map((selectedVoice: VoiceLang) => {
-                    return (): Promise<void> => new Promise((resolve) => {
-                        Voice.predownloadUpdate(selectedVoice, packagesVersions[selectedVoice] ?? null).then((stream) => {
-                            launcher.progressBar?.init({
-                                label: `Pre-downloading ${selectedVoice} voice package...`,
-                                showSpeed: true,
-                                showEta: true,
-                                showPercents: true,
-                                showTotals: true
-                            });
-                
-                            stream?.start(() => launcher.progressBar?.show());
-                
-                            stream?.progress((current: number, total: number, difference: number) => {
-                                launcher.progressBar?.update(current, total, difference);
-                            });
-                
-                            stream?.finish(() => {
-                                launcher.progressBar?.hide();
-                
-                                resolve();
-                            });
-                        });
-                    });
-                }),
-                interval: 3000
+    const selected = await Voice.selected;
+    for (let selectedVoice of selected) {
+        Debug.log(`Downloading voice ${selectedVoice}`);
+        await predownloadVoice(launcher, packagesVersions[selectedVoice] ?? null, selectedVoice);
+    }
+};
+
+function predownloadVoice(launcher: Launcher, version: string|null, selectedVoice: VoiceLang): Promise<void> {
+    return new Promise((resolve) => {
+        Voice.predownloadUpdate(selectedVoice, version).then((stream) => {
+            launcher.progressBar?.init({
+                label: `Pre-downloading ${selectedVoice} voice package...`,
+                showSpeed: true,
+                showEta: true,
+                showPercents: true,
+                showTotals: true
             });
 
-            updateVoices.then(() => resolve());
+            stream?.downloadStart(() => launcher.progressBar?.show());
+
+            stream?.downloadProgress((current: number, total: number, difference: number) => {
+                launcher.progressBar?.update(current, total, difference);
+            });
+
+            stream?.downloadFinish(() => {
+                launcher.progressBar?.hide();
+                resolve();
+            });
         });
     });
-};
+}

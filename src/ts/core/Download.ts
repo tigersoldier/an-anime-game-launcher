@@ -5,6 +5,7 @@ import type {
 } from '../types/GameData';
 
 import { DebugThread } from '@empathize/framework/dist/meta/Debug';
+import AbstractInstaller from './AbstractInstaller';
 import md5 from './md5';
 
 declare const Neutralino;
@@ -39,9 +40,10 @@ export function resolveDownloadTarget(data: { latest: Latest, diffs: Diff[] }, v
  * @returns true if the target is fully downloaded and verified. false if the
  * target needs to be downloaded or resumed.
  */
-export async function isDownloaded(target: Latest | Diff | VoicePack, filePath: string): Promise<boolean>
+export async function isDownloaded(target: Latest | Diff | VoicePack): Promise<boolean>
 {
     const debugThread = new DebugThread('Game.isDownloaded', 'Checking if the file is fully downloaded');
+    const filePath = await AbstractInstaller.getArchivePath(target.path);
 
     try
     {
