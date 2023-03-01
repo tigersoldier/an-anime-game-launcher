@@ -31,7 +31,17 @@ export default (launcher: Launcher): Promise<void> => {
 
                     for (const file of files)
                     {
-                        await Neutralino.filesystem.removeFile(`${gameDir}/${file}`);
+                        try {
+                            await Neutralino.filesystem.removeFile(`${gameDir}/${file}`);
+                        } catch (e) {
+                            Debug.log({
+                                function: 'Launcher/States/RemoveOutdated',
+                                message: [
+                                    `Error removing outdated file ${file}`,
+                                    e,
+                                ]
+                            });
+                        }
 
                         launcher.progressBar?.update(++current, total, 1);
                     }
